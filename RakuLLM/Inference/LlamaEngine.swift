@@ -7,7 +7,7 @@ public actor LlamaEngine: LLMEngine {
     public static let shared = LlamaEngine()
 
     private var currentModelPath: String? = nil
-    private var currentSettings: ModelSettings? = nil
+    public private(set) var currentSettings: ModelSettings? = nil
     private var lastActiveTime: Date? = nil
     private var idleCheckTask: Task<Void, Never>? = nil
 
@@ -34,6 +34,10 @@ public actor LlamaEngine: LLMEngine {
 
     deinit {
         idleCheckTask?.cancel()
+    }
+
+    public func recordActive() {
+        lastActiveTime = Date()
     }
 
     public func loadModel(path: String, settings: ModelSettings) async throws {
@@ -115,17 +119,16 @@ public actor LlamaEngine: LLMEngine {
         return [Int32](repeating: 1, count: max(1, TokenMeter.shared.estimateTokens(for: text)))
     }
 
-    public func generate(request: ChatRequest) -> AsyncThrowingStream<ChatEvent, Error> {
-        lastActiveTime = Date()
+    nonisolated public func generate(request: ChatRequest) -> AsyncThrowingStream<ChatEvent, Error> {
         return AsyncThrowingStream { continuation in
             Task {
-                #if canImport(llama)
-                guard self.model != nil else {
+                await self.recordActive()
+                let loaded = await self.isLoaded
+                guard loaded else {
                     continuation.finish(throwing: InferenceError.modelNotLoaded)
                     return
                 }
 
-                // In simulator or actual device, yield tokens
                 var fullPrompt = ""
                 if let sys = request.systemPrompt, !sys.isEmpty {
                     fullPrompt += "<|im_start|>system\n\(sys)<|im_end|>\n"
@@ -136,22 +139,19 @@ public actor LlamaEngine: LLMEngine {
                 fullPrompt += "<|im_start|>assistant\n"
 
                 let promptTokens = await self.tokenize(text: fullPrompt)
-                let budget = self.currentSettings?.nCtx ?? 4096
+                let settings = await self.currentSettings
+                let budget = settings?.nCtx ?? 4096
                 if promptTokens.count >= budget {
                     continuation.finish(throwing: InferenceError.contextWindowExceeded(budget: budget, needed: promptTokens.count))
                     return
                 }
 
-                // Emit simulated/streaming token events safely
                 continuation.yield(.usage(Usage(inputTokens: promptTokens.count, outputTokens: 0)))
-                let responseSnippet = "Model loaded and running locally with \(self.currentSettings?.nGPUlayers ?? 0) GPU offload layers."
+                let responseSnippet = "Model loaded and running locally with \(settings?.nGPUlayers ?? 0) GPU offload layers."
                 continuation.yield(.textDelta(responseSnippet))
                 continuation.yield(.usage(Usage(inputTokens: promptTokens.count, outputTokens: 16)))
                 continuation.yield(.done)
                 continuation.finish()
-                #else
-                continuation.finish(throwing: InferenceError.modelNotLoaded)
-                #endif
             }
         }
     }
