@@ -59,10 +59,39 @@ final class EnhancedFeaturesTests: XCTestCase {
         XCTAssertTrue(weatherResults.contains(where: { $0.id == "openmeteo" }))
     }
 
-    // MARK: - Production Code Directive Tests
+    // MARK: - DownloadManager & Inference Tests
 
-    func testProductionCodeDirectivePreservation() {
-        let directive = "[PRODUCTION CODE MANDATE: Generate clean, robust, highly accurate, and production-ready code.]"
-        XCTAssertTrue(directive.contains("clean, robust, highly accurate"))
+    func testDownloadManagerDestinationPathFlattening() {
+        let dest = DownloadManager.shared.destinationURL(repo: "meta-llama/Llama-3-8B-GGUF", filename: "sub/llama-3-8b.Q4_K_M.gguf")
+        XCTAssertTrue(dest.lastPathComponent.contains("meta-llama__Llama-3-8B-GGUF__sub__llama-3-8b.Q4_K_M.gguf"))
+        XCTAssertFalse(dest.lastPathComponent.contains("/"))
+    }
+
+    @MainActor
+    func testChatOrchestratorResetState() {
+        let orchestrator = ChatOrchestrator()
+        orchestrator.isGenerating = true
+        orchestrator.currentStreamingText = "Partial response..."
+        orchestrator.currentThinkingText = "Thinking deep thoughts..."
+        orchestrator.errorText = "Some prior error"
+
+        orchestrator.resetState()
+
+        XCTAssertFalse(orchestrator.isGenerating)
+        XCTAssertEqual(orchestrator.currentStreamingText, "")
+        XCTAssertEqual(orchestrator.currentThinkingText, "")
+        XCTAssertNil(orchestrator.errorText)
+    }
+
+    func testInferenceErrorDescriptions() {
+        let err1 = InferenceError.modelNotFound("/models/test.gguf")
+        XCTAssertTrue(err1.errorDescription?.contains("Model file not found") == true)
+
+        let err2 = InferenceError.failedToLoadModel("GGUF magic header mismatch")
+        XCTAssertTrue(err2.errorDescription?.contains("Failed to load model") == true)
+
+        let err3 = InferenceError.contextAllocationFailed
+        XCTAssertTrue(err3.errorDescription?.contains("Could not allocate inference context") == true)
     }
 }
+

@@ -56,25 +56,37 @@ public struct ChatView: View {
                     ScrollViewReader { proxy in
                         ScrollView {
                             LazyVStack(spacing: 8) {
-                                ForEach(currentMessages) { msg in
-                                    ChatMessageCell(
-                                        message: msg,
-                                        onEdit: {
-                                            inputText = msg.activeText
-                                            truncateHistory(from: msg)
-                                        },
-                                        onRegenerate: {
-                                            regenerate(message: msg)
-                                        },
-                                        onFork: {
-                                            forkConversation(upTo: msg)
-                                        },
-                                        onSelectVariant: { newIdx in
-                                            msg.activeVariant = newIdx
-                                            try? modelContext.save()
+                                if currentMessages.isEmpty && !orchestrator.isGenerating {
+                                    CleanEmptyChatView(
+                                        modelName: conv.modelIdentifier,
+                                        isLocal: conv.providerKind == .local,
+                                        onSelectPrompt: { suggestion in
+                                            inputText = suggestion
                                         }
                                     )
-                                    .id(msg.id)
+                                    .padding(.top, 32)
+                                    .padding(.horizontal, 16)
+                                } else {
+                                    ForEach(currentMessages) { msg in
+                                        ChatMessageCell(
+                                            message: msg,
+                                            onEdit: {
+                                                inputText = msg.activeText
+                                                truncateHistory(from: msg)
+                                            },
+                                            onRegenerate: {
+                                                regenerate(message: msg)
+                                            },
+                                            onFork: {
+                                                forkConversation(upTo: msg)
+                                            },
+                                            onSelectVariant: { newIdx in
+                                                msg.activeVariant = newIdx
+                                                try? modelContext.save()
+                                            }
+                                        )
+                                        .id(msg.id)
+                                    }
                                 }
 
                                 // Streaming Assistant Preview with Code Formatting
@@ -210,7 +222,7 @@ public struct ChatView: View {
                             Divider()
                             Section("Conversations") {
                                 ForEach(conversations) { conv in
-                                    Button(action: { activeConversation = conv }) {
+                                    Button(action: { switchConversation(to: conv) }) {
                                         HStack {
                                             Text(conv.title)
                                             if conv.id == activeConversation?.id {
@@ -336,7 +348,18 @@ public struct ChatView: View {
         }
     }
 
+    private func switchConversation(to conv: Conversation) {
+        orchestrator.resetState()
+        inputText = ""
+        activeConversation = conv
+    }
+
     private func startNewChat() {
+        orchestrator.resetState()
+        inputText = ""
+        isWebSearchEnabled = false
+        isProductionCodeEnabled = false
+
         let local = localGGUFModels.first
         let pk: ProviderKind = local != nil ? .local : .gemini
         let modelId = local?.filename ?? ProviderKind.gemini.defaultModel
@@ -352,6 +375,8 @@ public struct ChatView: View {
 
     private func deleteCurrentConversation() {
         guard let conv = activeConversation else { return }
+        orchestrator.resetState()
+        inputText = ""
         let msgs = allMessages.filter { $0.conversationID == conv.id }
         for m in msgs {
             modelContext.delete(m)
@@ -503,5 +528,76 @@ public struct ChatView: View {
         case .anthropic: return AnthropicProvider()
         case .local: return GeminiProvider() // local bridged through LlamaEngine
         }
+    }
+}
+
+private struct CleanEmptyChatView: View {
+    let modelName: String
+    let isLocal: Bool
+    let onSelectPrompt: (String) -> Void
+
+    private let suggestions = [
+        "Explain quantum computing in simple terms",
+        "Write a robust Swift actor for caching images",
+        "How do transformers and attention mechanisms work?",
+        "Help me brainstorm architectural designs for my app"
+    ]
+
+    var body: some View {
+        VStack(spacing: 20) {
+            ZStack {
+                Circle()
+                    .fill(RakuTheme.Color.accent.opacity(0.15))
+                    .frame(width: 72, height: 72)
+                Image(systemName: isLocal ? "cpu" : "sparkles")
+                    .font(.system(size: 32, weight: .semibold))
+                    .foregroundColor(RakuTheme.Color.accent)
+            }
+
+            VStack(spacing: 6) {
+                Text("How can I help you today?")
+                    .font(RakuTheme.Font.title())
+                    .foregroundColor(RakuTheme.Color.fg)
+                    .multilineTextAlignment(.center)
+
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(isLocal ? RakuTheme.Color.ok : RakuTheme.Color.accent)
+                        .frame(width: 6, height: 6)
+                    Text(isLocal ? "On-Device GGUF • Private & Offline" : "Cloud Model • \(modelName)")
+                        .font(RakuTheme.Font.footnote())
+                        .foregroundColor(RakuTheme.Color.subtle)
+                }
+            }
+
+            VStack(spacing: 10) {
+                ForEach(suggestions, id: \.self) { prompt in
+                    Button(action: {
+                        onSelectPrompt(prompt)
+                    }) {
+                        HStack {
+                            Text(prompt)
+                                .font(RakuTheme.Font.subheadline())
+                                .foregroundColor(RakuTheme.Color.fg)
+                                .multilineTextAlignment(.leading)
+                            Spacer()
+                            Image(systemName: "arrow.up.right")
+                                .font(.system(size: 12))
+                                .foregroundColor(RakuTheme.Color.subtle)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .background(RakuTheme.Color.elevated)
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(RakuTheme.Color.line, lineWidth: 1)
+                        )
+                    }
+                }
+            }
+            .padding(.top, 10)
+        }
+        .frame(maxWidth: .infinity)
     }
 }

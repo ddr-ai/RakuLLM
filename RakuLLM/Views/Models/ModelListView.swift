@@ -8,6 +8,9 @@ public struct ModelListView: View {
     @State private var selectedModelForSettings: ModelRecord? = nil
     @State private var modelSettings: [String: ModelSettings] = [:]
     @State private var autoChosenSettings: [String: ModelSettings] = [:]
+    @State private var loadingModelID: String? = nil
+    @State private var loadErrorMessage: String? = nil
+    @State private var showingLoadErrorAlert: Bool = false
 
     private let specs = DeviceProfile.shared.currentSpecs()
 
@@ -114,14 +117,24 @@ public struct ModelListView: View {
                                         Button(action: {
                                             toggleLoadModel(model)
                                         }) {
-                                            Text(isLoaded ? "Unload" : "Load")
-                                                .font(RakuTheme.Font.footnote())
-                                                .foregroundColor(isLoaded ? RakuTheme.Color.danger : RakuTheme.Color.bg)
-                                                .padding(.horizontal, 10)
-                                                .padding(.vertical, 4)
-                                                .background(isLoaded ? RakuTheme.Color.elevated : RakuTheme.Color.ok)
-                                                .cornerRadius(6)
+                                            if loadingModelID == model.id {
+                                                ProgressView()
+                                                    .progressViewStyle(CircularProgressViewStyle(tint: RakuTheme.Color.bg))
+                                                    .padding(.horizontal, 12)
+                                                    .padding(.vertical, 4)
+                                                    .background(RakuTheme.Color.accent)
+                                                    .cornerRadius(6)
+                                            } else {
+                                                Text(isLoaded ? "Unload" : "Load")
+                                                    .font(RakuTheme.Font.footnote())
+                                                    .foregroundColor(isLoaded ? RakuTheme.Color.danger : RakuTheme.Color.bg)
+                                                    .padding(.horizontal, 10)
+                                                    .padding(.vertical, 4)
+                                                    .background(isLoaded ? RakuTheme.Color.elevated : RakuTheme.Color.ok)
+                                                    .cornerRadius(6)
+                                            }
                                         }
+                                        .disabled(loadingModelID != nil)
                                     }
                                 }
                                 .padding(.vertical, 4)
@@ -170,8 +183,22 @@ public struct ModelListView: View {
                     }
                 )
             }
+            .alert("Model Load Failed", isPresented: $showingLoadErrorAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(loadErrorMessage ?? "Failed to load GGUF weights into memory. Check hardware constraints or try a smaller quantization.")
+            }
             .onAppear {
                 refreshLocalModels()
+                Task {
+                    let loaded = await LlamaEngine.shared.isLoaded
+                    let id = await LlamaEngine.shared.loadedModelID
+                    await MainActor.run {
+                        if loaded {
+                            activeLoadedModelID = id
+                        }
+                    }
+                }
             }
         }
     }
@@ -211,15 +238,31 @@ public struct ModelListView: View {
 
     private func toggleLoadModel(_ model: ModelRecord) {
         if activeLoadedModelID == model.id {
+            loadingModelID = model.id
             Task {
                 await LlamaEngine.shared.unloadModel()
-                activeLoadedModelID = nil
+                await MainActor.run {
+                    activeLoadedModelID = nil
+                    loadingModelID = nil
+                }
             }
         } else if let path = model.localPath {
             let settings = modelSettings[model.id] ?? ModelSettings(modelID: model.id)
+            loadingModelID = model.id
             Task {
-                try? await LlamaEngine.shared.loadModel(path: path, settings: settings)
-                activeLoadedModelID = model.id
+                do {
+                    try await LlamaEngine.shared.loadModel(path: path, settings: settings)
+                    await MainActor.run {
+                        activeLoadedModelID = model.id
+                        loadingModelID = nil
+                    }
+                } catch {
+                    await MainActor.run {
+                        loadingModelID = nil
+                        loadErrorMessage = error.localizedDescription
+                        showingLoadErrorAlert = true
+                    }
+                }
             }
         }
     }

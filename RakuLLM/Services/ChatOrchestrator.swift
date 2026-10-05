@@ -19,6 +19,13 @@ public final class ChatOrchestrator: ObservableObject {
         isGenerating = false
     }
 
+    public func resetState() {
+        cancel()
+        currentStreamingText = ""
+        currentThinkingText = ""
+        errorText = nil
+    }
+
     /// T5 Streaming only: Persist assistant text incrementally throttled to 500ms or 256 chars.
     public func send(
         conversation: Conversation,
@@ -123,14 +130,29 @@ public final class ChatOrchestrator: ObservableObject {
                     let loadedID = await LlamaEngine.shared.loadedModelID
                     if !loaded || loadedID != conversation.modelIdentifier {
                         let modelsDir = DownloadManager.shared.modelsDirectory
-                        let candidate = modelsDir.appendingPathComponent(conversation.modelIdentifier)
-                        if FileManager.default.fileExists(atPath: candidate.path) {
-                            try await LlamaEngine.shared.loadModel(path: candidate.path, settings: ModelSettings(modelID: conversation.modelIdentifier))
+                        var targetPath: String? = nil
+
+                        let direct = modelsDir.appendingPathComponent(conversation.modelIdentifier)
+                        if FileManager.default.fileExists(atPath: direct.path) {
+                            targetPath = direct.path
                         } else if let files = try? FileManager.default.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil) {
-                            if let found = files.first(where: { $0.lastPathComponent == conversation.modelIdentifier || $0.lastPathComponent.contains(conversation.modelIdentifier) }) {
-                                try await LlamaEngine.shared.loadModel(path: found.path, settings: ModelSettings(modelID: conversation.modelIdentifier))
+                            let ggufFiles = files.filter { $0.pathExtension.lowercased() == "gguf" }
+                            let cleanIdentifier = conversation.modelIdentifier.components(separatedBy: "::").last ?? conversation.modelIdentifier
+
+                            if let match = ggufFiles.first(where: { $0.lastPathComponent == cleanIdentifier || $0.lastPathComponent == conversation.modelIdentifier }) {
+                                targetPath = match.path
+                            } else if let match = ggufFiles.first(where: { $0.lastPathComponent.hasSuffix(cleanIdentifier) || $0.lastPathComponent.localizedCaseInsensitiveContains(cleanIdentifier) }) {
+                                targetPath = match.path
+                            } else if let fallback = ggufFiles.first {
+                                targetPath = fallback.path
                             }
                         }
+
+                        guard let modelPath = targetPath else {
+                            throw InferenceError.modelNotFound("No GGUF model found matching '\(conversation.modelIdentifier)'. Please download a model from Hugging Face in the Models tab.")
+                        }
+
+                        try await LlamaEngine.shared.loadModel(path: modelPath, settings: ModelSettings(modelID: conversation.modelIdentifier))
                     }
                     stream = LlamaEngine.shared.generate(request: request)
                 } else {

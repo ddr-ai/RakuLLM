@@ -21,7 +21,7 @@ public final class DownloadManager: NSObject, ObservableObject, URLSessionDownlo
         return dir
     }
 
-    private func ensureModelsDirectory() {
+    public func ensureModelsDirectory() {
         var dir = modelsDirectory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         var resourceValues = URLResourceValues()
@@ -31,23 +31,37 @@ public final class DownloadManager: NSObject, ObservableObject, URLSessionDownlo
 
     public func destinationURL(repo: String, filename: String) -> URL {
         let safeRepo = repo.replacingOccurrences(of: "/", with: "__")
-        return modelsDirectory.appendingPathComponent("\(safeRepo)__\(filename)")
+        let safeFile = filename.replacingOccurrences(of: "/", with: "__")
+        return modelsDirectory.appendingPathComponent("\(safeRepo)__\(safeFile)")
     }
 
     public func partURL(repo: String, filename: String) -> URL {
         let safeRepo = repo.replacingOccurrences(of: "/", with: "__")
-        return modelsDirectory.appendingPathComponent("\(safeRepo)__\(filename).part")
+        let safeFile = filename.replacingOccurrences(of: "/", with: "__")
+        return modelsDirectory.appendingPathComponent("\(safeRepo)__\(safeFile).part")
     }
 
     public func resumeDataURL(repo: String, filename: String) -> URL {
         let safeRepo = repo.replacingOccurrences(of: "/", with: "__")
-        return modelsDirectory.appendingPathComponent("\(safeRepo)__\(filename).resume")
+        let safeFile = filename.replacingOccurrences(of: "/", with: "__")
+        return modelsDirectory.appendingPathComponent("\(safeRepo)__\(safeFile).resume")
     }
 
     public func startDownload(repo: String, filename: String, token: String? = nil) {
         let modelID = "\(repo)::\(filename)"
         let dest = destinationURL(repo: repo, filename: filename)
-        let remoteURLString = "https://huggingface.co/\(repo)/resolve/main/\(filename)"
+        ensureModelsDirectory()
+
+        let effectiveToken = token ?? KeychainHelper.load(key: "io.github.ddr-ai.rakullm.hfToken")
+
+        // Safely construct remote download URL
+        let remoteURLString: String
+        if let encodedRepo = repo.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed),
+           let encodedFile = filename.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) {
+            remoteURLString = "https://huggingface.co/\(encodedRepo)/resolve/main/\(encodedFile)"
+        } else {
+            remoteURLString = "https://huggingface.co/\(repo)/resolve/main/\(filename)"
+        }
 
         guard let remoteURL = URL(string: remoteURLString) else { return }
 
@@ -73,7 +87,7 @@ public final class DownloadManager: NSObject, ObservableObject, URLSessionDownlo
         }
 
         var req = URLRequest(url: remoteURL)
-        if let t = token, !t.isEmpty {
+        if let t = effectiveToken, !t.isEmpty {
             req.setValue("Bearer \(t)", forHTTPHeaderField: "Authorization")
         }
 
@@ -142,6 +156,39 @@ public final class DownloadManager: NSObject, ObservableObject, URLSessionDownlo
         try? FileManager.default.removeItem(at: dest)
         try? FileManager.default.removeItem(at: part)
 
+        // 1. Verify HTTP Response Status
+        if let httpResponse = downloadTask.response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
+            try? FileManager.default.removeItem(at: location)
+            let errMsg: String
+            if httpResponse.statusCode == 401 || httpResponse.statusCode == 403 {
+                errMsg = "HTTP \(httpResponse.statusCode) (Unauthorized). This repository requires an access token. Add your Hugging Face token in Settings."
+            } else {
+                errMsg = "Hugging Face returned HTTP \(httpResponse.statusCode). Download failed."
+            }
+            record.state = .failed
+            record.errorDescription = errMsg
+            activeDownloads[modelID] = record
+            downloadTasks.removeValue(forKey: modelID)
+            return
+        }
+
+        // 2. Validate GGUF Magic Header (ASCII "GGUF" = 0x47, 0x47, 0x55, 0x46)
+        if let fileHandle = try? FileHandle(forReadingFrom: location) {
+            let magicData = try? fileHandle.read(upToCount: 4)
+            try? fileHandle.close()
+            let expectedMagic = Data([0x47, 0x47, 0x55, 0x46])
+            if magicData != expectedMagic {
+                try? FileManager.default.removeItem(at: location)
+                record.state = .failed
+                record.errorDescription = "File is not a valid GGUF model (magic header mismatch). Gated or corrupted file."
+                activeDownloads[modelID] = record
+                downloadTasks.removeValue(forKey: modelID)
+                return
+            }
+        }
+
+        // 3. Move verified GGUF weights to final destination
+        ensureModelsDirectory()
         do {
             try FileManager.default.moveItem(at: location, to: dest)
             var resourceValues = URLResourceValues()
