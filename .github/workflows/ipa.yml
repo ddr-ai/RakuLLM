@@ -50,10 +50,19 @@ jobs:
       - name: Run unit tests
         run: |
           set -euo pipefail
+          xcrun simctl list devices
+          DEVICE_ID=$(xcrun simctl list devices available -j | jq -r '.devices[] | map(select(.name | contains("iPhone"))) | .[0].udid // empty' | head -1)
+          if [ -n "$DEVICE_ID" ]; then
+            echo "Targeting available simulator UDID: $DEVICE_ID"
+            xcrun simctl boot "$DEVICE_ID" || true
+            DEST="id=$DEVICE_ID"
+          else
+            DEST="platform=iOS Simulator,name=iPhone 16"
+          fi
           xcodebuild test \
             -project RakuLLM.xcodeproj \
             -scheme RakuLLMTests \
-            -destination 'platform=iOS Simulator,name=iPhone 16' \
+            -destination "$DEST" \
             -derivedDataPath "$GITHUB_WORKSPACE/DerivedData"
 
       - name: Build Release IPA bundle
