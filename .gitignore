@@ -1,0 +1,11 @@
+DerivedData/
+build/
+Payload/
+*.ipa
+*.xcuserstate
+*.xcuserdata/
+xcuserdata/
+.DS_Store
+RakuLLM.xcodeproj/
+Vendor/
+RakuLLM/Resources/Assets.xcassets/AppIcon.appiconset/AppIcon.png
