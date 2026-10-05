@@ -92,7 +92,7 @@ public final class WebSearchService {
         let urlStr = "https://en.wikipedia.org/w/api.php?action=opensearch&search=\(encoded)&limit=4&namespace=0&format=json"
         guard let url = URL(string: urlStr) else { return nil }
 
-        guard let (data, response) = try? await URLSession.shared.data(for: url),
+        guard let (data, response) = try? await URLSession.shared.data(from: url),
               let http = response as? HTTPURLResponse, (200...299).contains(http.statusCode) else {
             return nil
         }

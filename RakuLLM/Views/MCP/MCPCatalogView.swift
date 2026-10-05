@@ -110,8 +110,8 @@ public struct MCPCatalogView: View {
                 id: tool.id,
                 name: tool.name,
                 url: tool.defaultURL,
-                enabled: true,
-                mode: .confirmEach
+                mode: .confirmEach,
+                enabled: true
             )
             registry.addServer(record)
         }
@@ -301,8 +301,8 @@ public struct ManualToolAuthSheet: View {
             id: tool.id,
             name: serverName.isEmpty ? tool.name : serverName,
             url: serverURL.isEmpty ? tool.defaultURL : serverURL,
-            enabled: true,
-            mode: mode
+            mode: mode,
+            enabled: true
         )
         registry.addServer(record, token: authToken.isEmpty ? nil : authToken)
     }
