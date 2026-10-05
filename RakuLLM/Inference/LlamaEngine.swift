@@ -63,6 +63,11 @@ public actor LlamaEngine: LLMEngine {
             throw InferenceError.modelNotFound(path)
         }
 
+        let fileName = URL(fileURLWithPath: path).lastPathComponent
+        if fileName.lowercased().contains("mmproj") {
+            throw InferenceError.failedToLoadModel("'\(fileName)' is a multimodal vision projector adapter (mmproj), not a standalone language model. Please select or download the main model weights (e.g. Q4_K_P or Q4_K_M) to chat.")
+        }
+
         #if canImport(llama)
         Self.ensureBackendInit()
         #endif
@@ -84,7 +89,12 @@ public actor LlamaEngine: LLMEngine {
         }
 
         guard let mdl = loadedModel else {
-            throw InferenceError.failedToLoadModel("Could not load weights from \(path). The GGUF file may be corrupted, truncated, or invalid.")
+            let meta = try? GGUFReader().parse(fileURL: URL(fileURLWithPath: path))
+            let arch = meta?.architecture ?? "unknown"
+            if arch.lowercased() == "clip" || arch.lowercased() == "projector" {
+                throw InferenceError.failedToLoadModel("'\(fileName)' is a multimodal vision adapter (architecture: \(arch)), not a standalone language model. Please download the main model file to chat.")
+            }
+            throw InferenceError.failedToLoadModel("Could not load weights from \(fileName). The file may be incomplete, corrupted, or unsupported.")
         }
         self.model = mdl
 

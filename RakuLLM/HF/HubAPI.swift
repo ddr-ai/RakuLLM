@@ -31,6 +31,11 @@ public struct HubFileItem: Identifiable, Codable, Equatable {
     public var size: Int64
     public var lfs: Bool?
 
+    public var isMultimodalProjector: Bool {
+        let lower = path.lowercased()
+        return lower.hasPrefix("mmproj") || lower.contains("mmproj")
+    }
+
     public init(path: String, size: Int64, lfs: Bool? = nil) {
         self.path = path
         self.size = size

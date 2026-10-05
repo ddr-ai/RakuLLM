@@ -95,70 +95,25 @@ public struct ModelSearchSheet: View {
                                 .foregroundColor(RakuTheme.Color.muted)
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                         } else {
-                            List(repoFiles) { file in
-                                let assessment = FitCalculator.shared.assessFit(
-                                    fileSizeBytes: file.size,
-                                    availableMemoryBytes: specs.availableMemoryBytes
-                                )
-                                let modelID = "\(repo.id)::\(file.path)"
-                                let downloadRecord = downloadManager.activeDownloads[modelID]
+                            let primaryFiles = repoFiles.filter { !$0.isMultimodalProjector }
+                            let projectorFiles = repoFiles.filter { $0.isMultimodalProjector }
 
-                                VStack(alignment: .leading, spacing: 6) {
-                                    HStack {
-                                        Text(file.path)
-                                            .font(RakuTheme.Font.subheadline())
-                                            .foregroundColor(RakuTheme.Color.fg)
-                                            .lineLimit(1)
-                                        Spacer()
-                                        FitBadgeView(fitLevel: assessment.fitLevel, referenceContext: assessment.referenceContext)
-                                    }
-
-                                    HStack {
-                                        Text(String(format: "%.1f GB", Double(file.size) / (1024 * 1024 * 1024)))
-                                            .font(RakuTheme.Font.footnote())
-                                            .foregroundColor(RakuTheme.Color.muted)
-
-                                        Spacer()
-
-                                        if let rec = downloadRecord {
-                                            if rec.state == .downloading {
-                                                ProgressView(value: rec.progress)
-                                                    .frame(width: 80)
-                                                Button(action: { downloadManager.pauseDownload(modelID: modelID) }) {
-                                                    Image(systemName: "pause.circle.fill")
-                                                        .foregroundColor(RakuTheme.Color.warning)
-                                                }
-                                            } else if rec.state == .paused {
-                                                Button(action: { downloadManager.startDownload(repo: repo.id, filename: file.path) }) {
-                                                    Text("Resume")
-                                                        .font(RakuTheme.Font.footnote())
-                                                        .foregroundColor(RakuTheme.Color.accent)
-                                                }
-                                            } else if rec.state == .completed {
-                                                Text("Downloaded")
-                                                    .font(RakuTheme.Font.footnote())
-                                                    .foregroundColor(RakuTheme.Color.ok)
-                                            }
-                                        } else {
-                                            Button(action: {
-                                                downloadManager.startDownload(repo: repo.id, filename: file.path)
-                                            }) {
-                                                HStack(spacing: 4) {
-                                                    Image(systemName: "arrow.down.to.line")
-                                                    Text("Download")
-                                                }
-                                                .font(RakuTheme.Font.footnote())
-                                                .foregroundColor(RakuTheme.Color.bg)
-                                                .padding(.horizontal, 10)
-                                                .padding(.vertical, 5)
-                                                .background(assessment.fitLevel == .tooLarge ? RakuTheme.Color.subtle : RakuTheme.Color.ok)
-                                                .cornerRadius(6)
-                                            }
+                            List {
+                                if !primaryFiles.isEmpty {
+                                    Section(header: Text("Language Models (Standalone LLM Weights)").foregroundColor(RakuTheme.Color.subtle)) {
+                                        ForEach(primaryFiles) { file in
+                                            fileRow(file: file, repo: repo)
                                         }
                                     }
                                 }
-                                .padding(.vertical, 4)
-                                .listRowBackground(RakuTheme.Color.elevated)
+
+                                if !projectorFiles.isEmpty {
+                                    Section(header: Text("Vision Projectors (mmproj - Requires Main Model)").foregroundColor(RakuTheme.Color.subtle)) {
+                                        ForEach(projectorFiles) { file in
+                                            fileRow(file: file, repo: repo)
+                                        }
+                                    }
+                                }
                             }
                             .listStyle(.plain)
                             .scrollContentBackground(.hidden)
@@ -178,6 +133,89 @@ public struct ModelSearchSheet: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func fileRow(file: HubFileItem, repo: HubModelItem) -> some View {
+        let assessment = FitCalculator.shared.assessFit(
+            fileSizeBytes: file.size,
+            availableMemoryBytes: specs.availableMemoryBytes
+        )
+        let modelID = "\(repo.id)::\(file.path)"
+        let downloadRecord = downloadManager.activeDownloads[modelID]
+
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text(file.path)
+                    .font(RakuTheme.Font.subheadline())
+                    .foregroundColor(RakuTheme.Color.fg)
+                    .lineLimit(1)
+                Spacer()
+                if file.isMultimodalProjector {
+                    Text("Vision Adapter")
+                        .font(RakuTheme.Font.footnote())
+                        .foregroundColor(RakuTheme.Color.warning)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(RakuTheme.Color.warning.opacity(0.15))
+                        .cornerRadius(4)
+                } else {
+                    FitBadgeView(fitLevel: assessment.fitLevel, referenceContext: assessment.referenceContext)
+                }
+            }
+
+            if file.isMultimodalProjector {
+                Text("⚠️ Multimodal projector only. Requires main model (e.g. Q4_K_P) above to chat.")
+                    .font(RakuTheme.Font.footnote())
+                    .foregroundColor(RakuTheme.Color.warning)
+            }
+
+            HStack {
+                Text(String(format: "%.1f GB", Double(file.size) / (1024 * 1024 * 1024)))
+                    .font(RakuTheme.Font.footnote())
+                    .foregroundColor(RakuTheme.Color.muted)
+
+                Spacer()
+
+                if let rec = downloadRecord {
+                    if rec.state == .downloading {
+                        ProgressView(value: rec.progress)
+                            .frame(width: 80)
+                        Button(action: { downloadManager.pauseDownload(modelID: modelID) }) {
+                            Image(systemName: "pause.circle.fill")
+                                .foregroundColor(RakuTheme.Color.warning)
+                        }
+                    } else if rec.state == .paused {
+                        Button(action: { downloadManager.startDownload(repo: repo.id, filename: file.path) }) {
+                            Text("Resume")
+                                .font(RakuTheme.Font.footnote())
+                                .foregroundColor(RakuTheme.Color.accent)
+                        }
+                    } else if rec.state == .completed {
+                        Text("Downloaded")
+                            .font(RakuTheme.Font.footnote())
+                            .foregroundColor(RakuTheme.Color.ok)
+                    }
+                } else {
+                    Button(action: {
+                        downloadManager.startDownload(repo: repo.id, filename: file.path)
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: "arrow.down.to.line")
+                            Text("Download")
+                        }
+                        .font(RakuTheme.Font.footnote())
+                        .foregroundColor(RakuTheme.Color.bg)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(assessment.fitLevel == .tooLarge ? RakuTheme.Color.subtle : RakuTheme.Color.ok)
+                        .cornerRadius(6)
+                    }
+                }
+            }
+        }
+        .padding(.vertical, 4)
+        .listRowBackground(RakuTheme.Color.elevated)
     }
 
     private func performSearch() {

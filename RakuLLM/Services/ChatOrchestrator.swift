@@ -125,6 +125,21 @@ public final class ChatOrchestrator: ObservableObject {
                 // Route stream: Local LlamaEngine vs Cloud Provider
                 let stream: AsyncThrowingStream<ChatEvent, Error>
                 if conversation.providerKind == .local {
+                    // Check if modelIdentifier accidentally references an mmproj projector file
+                    if conversation.modelIdentifier.lowercased().contains("mmproj") {
+                        let modelsDir = DownloadManager.shared.modelsDirectory
+                        if let files = try? FileManager.default.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil) {
+                            let validModels = files.filter { $0.pathExtension.lowercased() == "gguf" && !$0.lastPathComponent.lowercased().contains("mmproj") }
+                            if let fallback = validModels.first {
+                                conversation.modelIdentifier = fallback.lastPathComponent
+                            } else {
+                                throw InferenceError.failedToLoadModel("'\(conversation.modelIdentifier)' is a multimodal vision projector adapter (mmproj), not a standalone language model. Please download the main language model weights (e.g. Q4_K_P or Q4_K_M) in the Models tab to chat.")
+                            }
+                        } else {
+                            throw InferenceError.failedToLoadModel("'\(conversation.modelIdentifier)' is a multimodal vision projector adapter (mmproj), not a standalone language model. Please download the main language model weights (e.g. Q4_K_P or Q4_K_M) in the Models tab to chat.")
+                        }
+                    }
+
                     // Ensure local model weights are loaded
                     let loaded = await LlamaEngine.shared.isLoaded
                     let loadedID = await LlamaEngine.shared.loadedModelID
@@ -133,10 +148,10 @@ public final class ChatOrchestrator: ObservableObject {
                         var targetPath: String? = nil
 
                         let direct = modelsDir.appendingPathComponent(conversation.modelIdentifier)
-                        if FileManager.default.fileExists(atPath: direct.path) {
+                        if FileManager.default.fileExists(atPath: direct.path) && !direct.lastPathComponent.lowercased().contains("mmproj") {
                             targetPath = direct.path
                         } else if let files = try? FileManager.default.contentsOfDirectory(at: modelsDir, includingPropertiesForKeys: nil) {
-                            let ggufFiles = files.filter { $0.pathExtension.lowercased() == "gguf" }
+                            let ggufFiles = files.filter { $0.pathExtension.lowercased() == "gguf" && !$0.lastPathComponent.lowercased().contains("mmproj") }
                             let cleanIdentifier = conversation.modelIdentifier.components(separatedBy: "::").last ?? conversation.modelIdentifier
 
                             if let match = ggufFiles.first(where: { $0.lastPathComponent == cleanIdentifier || $0.lastPathComponent == conversation.modelIdentifier }) {
@@ -149,7 +164,7 @@ public final class ChatOrchestrator: ObservableObject {
                         }
 
                         guard let modelPath = targetPath else {
-                            throw InferenceError.modelNotFound("No GGUF model found matching '\(conversation.modelIdentifier)'. Please download a model from Hugging Face in the Models tab.")
+                            throw InferenceError.modelNotFound("No standalone GGUF language model found matching '\(conversation.modelIdentifier)'. Please download a model from Hugging Face in the Models tab.")
                         }
 
                         try await LlamaEngine.shared.loadModel(path: modelPath, settings: ModelSettings(modelID: conversation.modelIdentifier))

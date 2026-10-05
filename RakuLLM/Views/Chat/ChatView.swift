@@ -36,7 +36,10 @@ public struct ChatView: View {
     private var localGGUFModels: [ModelRecord] {
         let dir = DownloadManager.shared.modelsDirectory
         guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { return [] }
-        return files.filter { $0.pathExtension.lowercased() == "gguf" }.map { file in
+        return files.filter {
+            $0.pathExtension.lowercased() == "gguf" &&
+            !$0.lastPathComponent.lowercased().contains("mmproj")
+        }.map { file in
             let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
             return ModelRecord(
                 repo: "local",
@@ -329,6 +332,18 @@ public struct ChatView: View {
                         startNewChat()
                     }
                 }
+
+                // Auto-repair conversation if it points to a multimodal projector file (mmproj)
+                if let conv = activeConversation, conv.modelIdentifier.lowercased().contains("mmproj") {
+                    if let valid = localGGUFModels.first {
+                        conv.modelIdentifier = valid.filename
+                        conv.providerKind = .local
+                    } else {
+                        conv.providerKind = .gemini
+                        conv.modelIdentifier = ProviderKind.gemini.defaultModel
+                    }
+                    try? modelContext.save()
+                }
             }
             .sheet(isPresented: $showingToolApproval) {
                 if let call = pendingToolCall {
@@ -351,6 +366,16 @@ public struct ChatView: View {
     private func switchConversation(to conv: Conversation) {
         orchestrator.resetState()
         inputText = ""
+        if conv.modelIdentifier.lowercased().contains("mmproj") {
+            if let valid = localGGUFModels.first {
+                conv.modelIdentifier = valid.filename
+                conv.providerKind = .local
+            } else {
+                conv.providerKind = .gemini
+                conv.modelIdentifier = ProviderKind.gemini.defaultModel
+            }
+            try? modelContext.save()
+        }
         activeConversation = conv
     }
 

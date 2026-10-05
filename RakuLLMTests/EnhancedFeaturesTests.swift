@@ -93,5 +93,29 @@ final class EnhancedFeaturesTests: XCTestCase {
         let err3 = InferenceError.contextAllocationFailed
         XCTAssertTrue(err3.errorDescription?.contains("Could not allocate inference context") == true)
     }
+
+    func testMultimodalProjectorDetection() {
+        let normalItem = HubFileItem(path: "Gemma-4-E2B-Uncensored-HauhauCS-Aggressive-Q4_K_P.gguf", size: 3450277824)
+        XCTAssertFalse(normalItem.isMultimodalProjector)
+
+        let mmprojItem = HubFileItem(path: "mmproj-Gemma-4-E2B-Uncensored-HauhauCS-Aggressive-f16.gguf", size: 985570240)
+        XCTAssertTrue(mmprojItem.isMultimodalProjector)
+    }
+
+    func testLlamaEngineRejectsStandaloneMMProj() async {
+        let tmpDir = FileManager.default.temporaryDirectory
+        let dummyMMProjURL = tmpDir.appendingPathComponent("mmproj-Gemma-test-f16.gguf")
+        try? "dummy data".data(using: .utf8)?.write(to: dummyMMProjURL)
+        defer { try? FileManager.default.removeItem(at: dummyMMProjURL) }
+
+        do {
+            try await LlamaEngine.shared.loadModel(path: dummyMMProjURL.path, settings: ModelSettings(modelID: "test"))
+            XCTFail("LlamaEngine should reject standalone mmproj projector files")
+        } catch let InferenceError.failedToLoadModel(msg) {
+            XCTAssertTrue(msg.contains("multimodal vision projector adapter (mmproj)"))
+        } catch {
+            XCTFail("Unexpected error type: \(error)")
+        }
+    }
 }
 

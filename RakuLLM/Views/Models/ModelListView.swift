@@ -82,6 +82,7 @@ public struct ModelListView: View {
                         } else {
                             ForEach(localModels) { model in
                                 let isLoaded = activeLoadedModelID == model.id
+                                let isMMProj = model.filename.lowercased().contains("mmproj")
                                 VStack(alignment: .leading, spacing: 6) {
                                     HStack {
                                         Text(model.filename)
@@ -89,7 +90,15 @@ public struct ModelListView: View {
                                             .foregroundColor(RakuTheme.Color.fg)
                                             .lineLimit(1)
                                         Spacer()
-                                        if isLoaded {
+                                        if isMMProj {
+                                            Text("Vision Adapter")
+                                                .font(RakuTheme.Font.footnote())
+                                                .foregroundColor(RakuTheme.Color.warning)
+                                                .padding(.horizontal, 6)
+                                                .padding(.vertical, 2)
+                                                .background(RakuTheme.Color.warning.opacity(0.15))
+                                                .cornerRadius(4)
+                                        } else if isLoaded {
                                             Text("Active")
                                                 .font(RakuTheme.Font.footnote())
                                                 .foregroundColor(RakuTheme.Color.ok)
@@ -237,6 +246,12 @@ public struct ModelListView: View {
     }
 
     private func toggleLoadModel(_ model: ModelRecord) {
+        if model.filename.lowercased().contains("mmproj") {
+            loadErrorMessage = "'\(model.filename)' is a Multimodal Projector (vision adapter), not a standalone language model. It cannot be run on its own. Please download the main language model weights (e.g. Q4_K_P or Q4_K_M) to chat."
+            showingLoadErrorAlert = true
+            return
+        }
+
         if activeLoadedModelID == model.id {
             loadingModelID = model.id
             Task {
