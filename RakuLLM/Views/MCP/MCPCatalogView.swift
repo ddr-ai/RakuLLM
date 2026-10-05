@@ -111,7 +111,7 @@ public struct MCPCatalogView: View {
                 name: tool.name,
                 url: tool.defaultURL,
                 enabled: true,
-                mode: .prompt
+                mode: .confirmEach
             )
             registry.addServer(record)
         }
@@ -212,7 +212,7 @@ public struct ManualToolAuthSheet: View {
     @State private var serverURL: String = ""
     @State private var authToken: String = ""
     @State private var isEnabled: Bool = true
-    @State private var mode: ToolPermissionMode = .prompt
+    @State private var mode: ToolPermissionMode = .confirmEach
 
     public init(tool: DirectoryToolItem, registry: MCPRegistry) {
         self.tool = tool
@@ -258,7 +258,7 @@ public struct ManualToolAuthSheet: View {
 
                 Section(header: Text("Execution Policy").foregroundColor(RakuTheme.Color.subtle)) {
                     Picker("Permission", selection: $mode) {
-                        ForEach([ToolPermissionMode.prompt, .automatic, .disabled]) { m in
+                        ForEach([ToolPermissionMode.confirmEach, .allowAll, .allowlist]) { m in
                             Text(m.displayName).tag(m)
                         }
                     }

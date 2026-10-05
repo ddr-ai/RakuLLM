@@ -118,6 +118,7 @@ public struct MCPServersView: View {
                 .listStyle(.plain)
                 .scrollContentBackground(.hidden)
                 }
+                }
             }
             .background(RakuTheme.Color.bg.edgesIgnoringSafeArea(.all))
             .navigationTitle("MCP & Tools")
