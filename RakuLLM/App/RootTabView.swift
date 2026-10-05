@@ -1,5 +1,6 @@
 import SwiftUI
 
+@MainActor
 public struct RootTabView: View {
     @ObservedObject public var env: AppEnvironment
 
