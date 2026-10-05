@@ -2,12 +2,15 @@
 
 A high-performance iOS LLM chat client combining cloud intelligence, on-device GGUF inference, Hugging Face discovery, and remote Model Context Protocol (MCP) tool integration.
 
-## Four Pillars
+## Key Features
 
-1. **Cloud Providers** — Stream with Gemini, OpenAI, Grok, and Anthropic. All API credentials remain protected in the iOS Keychain.
-2. **On-Device GGUF via llama.cpp** — Search Hugging Face directly within the app, view device-fit badges before downloading, and run models locally on your phone with zero network latency.
-3. **Silent Auto-Configuration** — Automatic memory and hardware profiling on every model load. Balances context length, KV cache precision (`f16`/`q8_0`), thread allocation, and Metal GPU offloading within a safe 60% memory ceiling.
-4. **Remote MCP Tool Calling** — Connect to remote Streamable HTTP MCP servers. Comprehensive 4-tier permission model (always allow, always deny, per-chat override, server default) with automatic heuristics requiring confirmation for destructive actions (`delete`, `exec`, `write`, `send`).
+1. **On-Device GGUF Inference (Zero API Keys Required)** — Download GGUF models directly from Hugging Face. The app detects downloaded models and lets you select them right in the chat interface. Run 100% locally and privately on-device with llama.cpp.
+2. **Optional Cloud Providers** — Commercial LLMs (Gemini, OpenAI, Grok, Anthropic) are completely optional. API keys are saved securely in the iOS Keychain only when commercial models are selected.
+3. **Public Tool & Services Catalog (Grid Layer)** — Browse hundreds of free tools and services across 8 categories with a 1-tap "Connect" button into the MCP runtime, plus a manual authentication sheet for custom Bearer tokens and endpoints.
+4. **Live Web Search & Production Code Toggles** — Beside the chat input, toggle real-time live web search (DuckDuckGo / Wikipedia) and activate the Production Code directive for clean, highly accurate, real-world production code.
+5. **Rich Code Formatting** — Formatted output for Swift, Python, TypeScript, Rust, Go, C++, SQL, Bash, JSON, etc. with syntax language badges, line counts, and 1-tap "Copy Code" buttons.
+6. **Chat Management & Memory Rollover** — Rename chats, delete chats with cascade cleanup, and enjoy automatic chat rollover with distilled memory carryover whenever the token limit is approached.
+7. **Swipe-to-Dismiss Keyboard** — Swipe down anywhere on the screen to immediately dismiss the keyboard, tap to chat to bring it right back.
 
 ## Context Window & Memory Discipline
 

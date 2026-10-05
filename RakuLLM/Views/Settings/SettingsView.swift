@@ -22,7 +22,10 @@ public struct SettingsView: View {
                     .listRowBackground(RakuTheme.Color.elevated)
                 }
 
-                Section(header: Text("Cloud Providers").foregroundColor(RakuTheme.Color.subtle)) {
+                Section(
+                    header: Text("Cloud Providers (Optional)").foregroundColor(RakuTheme.Color.subtle),
+                    footer: Text("Commercial LLMs are optional. No API key is required to run downloaded on-device GGUF models. Entered API keys are saved securely in iOS Keychain.").foregroundColor(RakuTheme.Color.subtle)
+                ) {
                     ForEach([ProviderKind.gemini, .openai, .grok, .anthropic]) { provider in
                         NavigationLink(destination: ProviderKeyView(provider: provider)) {
                             HStack {

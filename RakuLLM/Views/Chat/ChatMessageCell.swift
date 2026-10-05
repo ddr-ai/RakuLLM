@@ -104,17 +104,24 @@ public struct ChatMessageCell: View {
                 }
 
                 // Message Text
-                Text(message.activeText)
-                    .font(RakuTheme.Font.body())
-                    .foregroundColor(isUser ? RakuTheme.Color.bg : RakuTheme.Color.fg)
-                    .textSelection(.enabled)
-                    .padding(12)
-                    .background(isUser ? RakuTheme.Color.fg : RakuTheme.Color.elevated)
-                    .cornerRadius(12)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 12)
-                            .stroke(isUser ? Color.clear : RakuTheme.Color.line, lineWidth: 1)
-                    )
+                if isUser {
+                    Text(message.activeText)
+                        .font(RakuTheme.Font.body())
+                        .foregroundColor(RakuTheme.Color.bg)
+                        .textSelection(.enabled)
+                        .padding(12)
+                        .background(RakuTheme.Color.fg)
+                        .cornerRadius(12)
+                } else {
+                    FormattedMessageView(text: message.activeText, isUser: false)
+                        .padding(12)
+                        .background(RakuTheme.Color.elevated)
+                        .cornerRadius(12)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(RakuTheme.Color.line, lineWidth: 1)
+                        )
+                }
 
                 // Metric chips for assistant message
                 if !isUser {

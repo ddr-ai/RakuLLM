@@ -22,7 +22,7 @@ public struct RootTabView: View {
 
             MCPServersView(registry: env.mcpRegistry)
                 .tabItem {
-                    Label("MCP", systemImage: "server.rack")
+                    Label("Tools & MCP", systemImage: "square.grid.2x2")
                 }
 
             SettingsView()

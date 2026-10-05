@@ -2,6 +2,7 @@ import SwiftUI
 
 public struct MCPServersView: View {
     @ObservedObject public var registry: MCPRegistry
+    @State private var selectedTab: Int = 0 // 0: Catalog Grid, 1: My Servers
     @State private var showingAddServer: Bool = false
     @State private var showingImport: Bool = false
     @State private var connectingServerID: String? = nil
@@ -12,8 +13,22 @@ public struct MCPServersView: View {
 
     public var body: some View {
         NavigationView {
-            List {
-                Section(header: Text("Registered Remote Servers").foregroundColor(RakuTheme.Color.subtle)) {
+            VStack(spacing: 0) {
+                // Segmented Switcher
+                Picker("Section", selection: $selectedTab) {
+                    Text("Tools Directory").tag(0)
+                    Text("My Servers (\(registry.servers.count))").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(RakuTheme.Color.bg)
+
+                if selectedTab == 0 {
+                    MCPCatalogView(registry: registry)
+                } else {
+                    List {
+                        Section(header: Text("Registered Remote Servers").foregroundColor(RakuTheme.Color.subtle)) {
                     if registry.servers.isEmpty {
                         VStack(alignment: .center, spacing: 8) {
                             Text("No MCP servers configured.")
@@ -100,11 +115,12 @@ public struct MCPServersView: View {
                         .onDelete(perform: deleteServer)
                     }
                 }
+                .listStyle(.plain)
+                .scrollContentBackground(.hidden)
+                }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
             .background(RakuTheme.Color.bg.edgesIgnoringSafeArea(.all))
-            .navigationTitle("MCP Servers")
+            .navigationTitle("MCP & Tools")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {

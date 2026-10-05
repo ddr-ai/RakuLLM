@@ -14,6 +14,15 @@ public struct ChatView: View {
     @State private var pendingToolCall: (server: MCPServerRecord, tool: ChatToolDefinition, argsJSON: String)? = nil
     @State private var isThinkingExpanded: Bool = false
 
+    // Web Search & Production Code toggles
+    @State private var isWebSearchEnabled: Bool = false
+    @State private var isProductionCodeEnabled: Bool = false
+
+    // Chat Rename & Delete state
+    @State private var showingRenameAlert: Bool = false
+    @State private var renameTitleText: String = ""
+    @State private var showingDeleteConfirmation: Bool = false
+
     public init(orchestrator: ChatOrchestrator, mcpRegistry: MCPRegistry) {
         self.orchestrator = orchestrator
         self.mcpRegistry = mcpRegistry
@@ -22,6 +31,21 @@ public struct ChatView: View {
     private var currentMessages: [Message] {
         guard let conv = activeConversation else { return [] }
         return allMessages.filter { $0.conversationID == conv.id }
+    }
+
+    private var localGGUFModels: [ModelRecord] {
+        let dir = DownloadManager.shared.modelsDirectory
+        guard let files = try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: [.fileSizeKey]) else { return [] }
+        return files.filter { $0.pathExtension.lowercased() == "gguf" }.map { file in
+            let size = (try? file.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+            return ModelRecord(
+                repo: "local",
+                filename: file.lastPathComponent,
+                localPath: file.path,
+                fileSizeBytes: Int64(size),
+                downloadState: .completed
+            )
+        }
     }
 
     public var body: some View {
@@ -53,7 +77,7 @@ public struct ChatView: View {
                                     .id(msg.id)
                                 }
 
-                                // Streaming Assistant Preview
+                                // Streaming Assistant Preview with Code Formatting
                                 if orchestrator.isGenerating {
                                     VStack(alignment: .leading, spacing: 6) {
                                         if !orchestrator.currentThinkingText.isEmpty {
@@ -70,15 +94,17 @@ public struct ChatView: View {
                                             .padding(.horizontal, 16)
                                         }
 
-                                        HStack {
-                                            Text(orchestrator.currentStreamingText.isEmpty ? "Thinking..." : orchestrator.currentStreamingText)
-                                                .font(RakuTheme.Font.body())
-                                                .foregroundColor(RakuTheme.Color.fg)
-                                                .padding(12)
-                                                .background(RakuTheme.Color.elevated)
-                                                .cornerRadius(12)
-                                            Spacer()
-                                        }
+                                        FormattedMessageView(
+                                            text: orchestrator.currentStreamingText.isEmpty ? "Thinking..." : orchestrator.currentStreamingText,
+                                            isUser: false
+                                        )
+                                        .padding(12)
+                                        .background(RakuTheme.Color.elevated)
+                                        .cornerRadius(12)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 12)
+                                                .stroke(RakuTheme.Color.line, lineWidth: 1)
+                                        )
                                         .padding(.horizontal, 12)
                                     }
                                     .id("streaming-indicator")
@@ -95,6 +121,7 @@ public struct ChatView: View {
                             }
                             .padding(.vertical, 8)
                         }
+                        .scrollDismissesKeyboard(.interactively)
                         .onChange(of: currentMessages.count) { _ in
                             if let last = currentMessages.last {
                                 withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
@@ -105,7 +132,7 @@ public struct ChatView: View {
                         }
                     }
 
-                    // Composer
+                    // Composer with Web Search and Production Code options
                     ChatComposerView(
                         text: $inputText,
                         isGenerating: orchestrator.isGenerating,
@@ -113,6 +140,8 @@ public struct ChatView: View {
                             get: { conv.toolPermissionOverride },
                             set: { conv.toolPermissionOverride = $0; try? modelContext.save() }
                         ),
+                        isWebSearchEnabled: $isWebSearchEnabled,
+                        isProductionCodeEnabled: $isProductionCodeEnabled,
                         serverCount: mcpRegistry.servers.count,
                         toolCount: ToolCatalog.shared.allEnabledTools(enabledServerIDs: Set(mcpRegistry.servers.filter { $0.enabled }.map { $0.id })).count,
                         onSend: { sendMessage() },
@@ -141,52 +170,144 @@ public struct ChatView: View {
                 }
             }
             .background(RakuTheme.Color.bg.edgesIgnoringSafeArea(.all))
+            // Swipe down anywhere on phone screen to dismiss keyboard
+            .gesture(
+                DragGesture(minimumDistance: 15, coordinateSpace: .local)
+                    .onChanged { gesture in
+                        if gesture.translation.height > 20 && abs(gesture.translation.width) < 80 {
+                            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+                        }
+                    }
+            )
             .navigationTitle(activeConversation?.title ?? "RakuLLM")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // Leading: Conversation management (Switch, Rename, Delete, New Chat)
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {
-                        ForEach(conversations) { conv in
-                            Button(action: { activeConversation = conv }) {
-                                HStack {
-                                    Text(conv.title)
-                                    if conv.id == activeConversation?.id {
-                                        Image(systemName: "checkmark")
+                        if let conv = activeConversation {
+                            Button(action: {
+                                renameTitleText = conv.title
+                                showingRenameAlert = true
+                            }) {
+                                Label("Rename Chat", systemImage: "pencil")
+                            }
+
+                            Button(role: .destructive, action: {
+                                showingDeleteConfirmation = true
+                            }) {
+                                Label("Delete Chat", systemImage: "trash")
+                            }
+
+                            Divider()
+                        }
+
+                        Button(action: startNewChat) {
+                            Label("New Chat", systemImage: "plus")
+                        }
+
+                        if !conversations.isEmpty {
+                            Divider()
+                            Section("Conversations") {
+                                ForEach(conversations) { conv in
+                                    Button(action: { activeConversation = conv }) {
+                                        HStack {
+                                            Text(conv.title)
+                                            if conv.id == activeConversation?.id {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
-                        Divider()
-                        Button(action: startNewChat) {
-                            Label("New Chat", systemImage: "plus")
-                        }
                     } label: {
-                        Image(systemName: "clock.arrow.circlepath")
+                        Image(systemName: "line.3.horizontal.circle")
                             .foregroundColor(RakuTheme.Color.fg)
                     }
                 }
 
+                // Trailing: Model Picker (Local GGUF models detected from Hugging Face & Cloud Models)
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Menu {
-                        ForEach(ProviderKind.allCases) { pk in
-                            Button(action: {
-                                activeConversation?.providerKind = pk
-                                activeConversation?.modelIdentifier = pk.defaultModel
-                                try? modelContext.save()
-                            }) {
-                                Text("\(pk.displayName) (\(pk.defaultModel))")
+                        // Section 1: Detected On-Device GGUF Models (Free, Offline, Zero API Keys)
+                        Section("On-Device Models (GGUF - Free & Offline)") {
+                            if localGGUFModels.isEmpty {
+                                Button(action: {}) {
+                                    Label("No local models found (Download in Models tab)", systemImage: "arrow.down.circle")
+                                }
+                                .disabled(true)
+                            } else {
+                                ForEach(localGGUFModels) { model in
+                                    Button(action: {
+                                        activeConversation?.providerKind = .local
+                                        activeConversation?.modelIdentifier = model.filename
+                                        try? modelContext.save()
+                                    }) {
+                                        HStack {
+                                            Text(model.filename)
+                                            if activeConversation?.providerKind == .local && activeConversation?.modelIdentifier == model.filename {
+                                                Image(systemName: "checkmark")
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Section 2: Optional Cloud Providers (Gemini, OpenAI, Grok, Anthropic)
+                        Section("Cloud Models (Optional)") {
+                            ForEach([ProviderKind.gemini, .openai, .grok, .anthropic]) { pk in
+                                let hasKey = KeychainHelper.load(key: pk.keychainKey) != nil
+                                Button(action: {
+                                    activeConversation?.providerKind = pk
+                                    activeConversation?.modelIdentifier = pk.defaultModel
+                                    try? modelContext.save()
+                                }) {
+                                    HStack {
+                                        Text("\(pk.displayName) (\(pk.defaultModel))\(hasKey ? "" : " - Key Needed")")
+                                        if activeConversation?.providerKind == pk {
+                                            Image(systemName: "checkmark")
+                                        }
+                                    }
+                                }
                             }
                         }
                     } label: {
                         HStack(spacing: 4) {
-                            Text(activeConversation?.modelIdentifier ?? "")
+                            Image(systemName: activeConversation?.providerKind == .local ? "cpu" : "cloud")
+                                .font(.system(size: 10))
+                                .foregroundColor(activeConversation?.providerKind == .local ? RakuTheme.Color.accent : RakuTheme.Color.ok)
+                            Text(activeConversation?.modelIdentifier ?? "Model")
                                 .font(RakuTheme.Font.footnote())
+                                .lineLimit(1)
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 8))
                         }
-                        .foregroundColor(RakuTheme.Color.muted)
+                        .foregroundColor(RakuTheme.Color.fg)
                     }
                 }
+            }
+            .alert("Rename Chat", isPresented: $showingRenameAlert) {
+                TextField("Chat Title", text: $renameTitleText)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") {
+                    let trimmed = renameTitleText.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !trimmed.isEmpty, let conv = activeConversation {
+                        conv.title = trimmed
+                        try? modelContext.save()
+                    }
+                }
+            } message: {
+                Text("Enter a new title for this conversation.")
+            }
+            .alert("Delete Chat?", isPresented: $showingDeleteConfirmation) {
+                Button("Cancel", role: .cancel) {}
+                Button("Delete", role: .destructive) {
+                    deleteCurrentConversation()
+                }
+            } message: {
+                Text("Are you sure you want to delete '\(activeConversation?.title ?? "this chat")'? All messages will be permanently removed.")
             }
             .onAppear {
                 if activeConversation == nil {
@@ -216,20 +337,40 @@ public struct ChatView: View {
     }
 
     private func startNewChat() {
+        let local = localGGUFModels.first
+        let pk: ProviderKind = local != nil ? .local : .gemini
+        let modelId = local?.filename ?? ProviderKind.gemini.defaultModel
         let newConv = Conversation(
             title: "New Chat",
-            providerKind: .gemini,
-            modelIdentifier: "gemini-2.5-flash"
+            providerKind: pk,
+            modelIdentifier: modelId
         )
         modelContext.insert(newConv)
         try? modelContext.save()
         activeConversation = newConv
     }
 
-    private func sendMessage() {
+    private func deleteCurrentConversation() {
         guard let conv = activeConversation else { return }
+        let msgs = allMessages.filter { $0.conversationID == conv.id }
+        for m in msgs {
+            modelContext.delete(m)
+        }
+        modelContext.delete(conv)
+        try? modelContext.save()
+        activeConversation = conversations.first(where: { $0.id != conv.id })
+        if activeConversation == nil {
+            startNewChat()
+        }
+    }
+
+    private func sendMessage() {
+        guard var conv = activeConversation else { return }
         let prompt = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
         inputText = ""
+
+        // Automatic Chat Rollover with Memory if approaching token limit
+        conv = checkAndPerformRolloverIfNeeded(conv: conv, nextPrompt: prompt)
 
         let userMsg = Message(
             conversationID: conv.id,
@@ -247,6 +388,46 @@ public struct ChatView: View {
         runInference(conv: conv, prompt: prompt)
     }
 
+    private func checkAndPerformRolloverIfNeeded(conv: Conversation, nextPrompt: String) -> Conversation {
+        let estTokens = currentMessages.reduce(0) { $0 + TokenMeter.shared.estimateTokens(for: $1.activeText) } + TokenMeter.shared.estimateTokens(for: nextPrompt)
+        let maxLimit = (conv.providerKind == .local) ? 4096 : 8192
+
+        if estTokens >= Int(Double(maxLimit) * 0.85) && !currentMessages.isEmpty {
+            let memorySummary = buildMemorySummary(messages: currentMessages, title: conv.title)
+
+            let continuedConv = Conversation(
+                title: "\(conv.title) (Continued)",
+                providerKind: conv.providerKind,
+                modelIdentifier: conv.modelIdentifier,
+                systemPromptOverride: (conv.systemPromptOverride != nil ? conv.systemPromptOverride! + "\n\n" : "") + "[CONVERSATION MEMORY CARRYOVER]\n" + memorySummary
+            )
+            modelContext.insert(continuedConv)
+
+            let rolloverNotice = Message(
+                conversationID: continuedConv.id,
+                sequence: 0,
+                role: .assistant,
+                text: "⚡ *Context token limit reached. Automatically transitioned to a continuation chat with conversation memory preserved.*"
+            )
+            modelContext.insert(rolloverNotice)
+            try? modelContext.save()
+
+            self.activeConversation = continuedConv
+            return continuedConv
+        }
+        return conv
+    }
+
+    private func buildMemorySummary(messages: [Message], title: String) -> String {
+        var summary = "Summary of previous conversation context from '\(title)':\n"
+        let keyMsgs = messages.suffix(8)
+        for m in keyMsgs {
+            let snippet = m.activeText.prefix(120).replacingOccurrences(of: "\n", with: " ")
+            summary += "- [\(m.role.rawValue.capitalized)]: \(snippet)...\n"
+        }
+        return summary
+    }
+
     private func runInference(conv: Conversation, prompt: String) {
         let provider = providerFor(kind: conv.providerKind)
         let key = KeychainHelper.load(key: conv.providerKind.keychainKey) ?? ""
@@ -260,13 +441,19 @@ public struct ChatView: View {
             userPrompt: prompt,
             provider: provider,
             apiKey: key,
-            tools: tools.isEmpty ? nil : tools
-        ) { updatedAssistantMessage in
-            if !self.currentMessages.contains(where: { $0.id == updatedAssistantMessage.id }) {
-                self.modelContext.insert(updatedAssistantMessage)
+            isWebSearchEnabled: isWebSearchEnabled,
+            isProductionCodeEnabled: isProductionCodeEnabled,
+            tools: tools.isEmpty ? nil : tools,
+            onApproachingTokenLimit: { [weak conv] in
+                // Notification callback if needed
+            },
+            onUpdateMessage: { updatedAssistantMessage in
+                if !self.currentMessages.contains(where: { $0.id == updatedAssistantMessage.id }) {
+                    self.modelContext.insert(updatedAssistantMessage)
+                }
+                try? self.modelContext.save()
             }
-            try? self.modelContext.save()
-        }
+        )
     }
 
     private func truncateHistory(from msg: Message) {
@@ -314,7 +501,7 @@ public struct ChatView: View {
         case .openai: return OpenAIProvider()
         case .grok: return GrokProvider()
         case .anthropic: return AnthropicProvider()
-        case .local: return GeminiProvider() // local bridged through engine
+        case .local: return GeminiProvider() // local bridged through LlamaEngine
         }
     }
 }
