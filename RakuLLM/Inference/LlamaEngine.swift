@@ -147,8 +147,7 @@ public actor LlamaEngine: LLMEngine {
     public func tokenize(text: String) async -> [Int32] {
         lastActiveTime = Date()
         #if canImport(llama)
-        guard let mdl = model else { return [] }
-        let vocab = llama_model_get_vocab(mdl)
+        guard let mdl = model, let vocab = llama_model_get_vocab(mdl) else { return [] }
         let maxTokens = Int32(text.utf8.count + 16)
         var tokens = [llama_token](repeating: 0, count: Int(maxTokens))
         let count = llama_tokenize(vocab, text, Int32(text.utf8.count), &tokens, maxTokens, true, true)
@@ -192,12 +191,12 @@ public actor LlamaEngine: LLMEngine {
             self.context = llama_init_from_model(mdl, ctxParams)
         }
 
-        guard let ctx = self.context, let mdl = self.model else {
+        guard let ctx = self.context,
+              let mdl = self.model,
+              let vocab = llama_model_get_vocab(mdl) else {
             continuation.finish(throwing: InferenceError.modelNotLoaded)
             return
         }
-
-        let vocab = llama_model_get_vocab(mdl)
 
         // Clear existing memory/KV cache
         if let mem = llama_get_memory(ctx) {
@@ -233,7 +232,7 @@ public actor LlamaEngine: LLMEngine {
         defer { llama_sampler_free(sampler) }
 
         var outputCount = 0
-        let maxTokens = min(request.maxOutputTokens ?? 1024, 2048)
+        let maxTokens = min(request.maxOutputTokens, 2048)
 
         while outputCount < maxTokens {
             if Task.isCancelled { break }
